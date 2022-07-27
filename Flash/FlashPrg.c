@@ -22,7 +22,7 @@
  * limitations under the License.
  */
  
-#include "..\FlashOS.H"        // FlashOS Structures
+#include "../FlashOS.H"        // FlashOS Structures
 
 /* 
    Mandatory Flash Programming Functions (Called by FlashOS):
@@ -49,6 +49,16 @@
        - if EraseChip is not provided than EraseSector for all sectors is called
 */
 
+#include <string.h>
+#include "main.h"
+#include "gpio.h"
+#include "quadspi.h"
+#include "w25qxx.h"
+
+#define SECTOR_SIZE 	(4096)
+#define PAGE_SIZE			(256)
+#define DEVICE_ID			(0xEF16)
+static unsigned long devAdr;
 
 /*
  *  Initialize Flash Programming Functions
@@ -57,13 +67,43 @@
  *                    fnc:  Function Code (1 - Erase, 2 - Program, 3 - Verify)
  *    Return Value:   0 - OK,  1 - Failed
  */
+int Init (unsigned long adr, unsigned long clk, unsigned long fnc)
+{
+	devAdr = adr;
+	
+	volatile int i;
+	volatile unsigned char *ptr = (volatile unsigned char *)&hqspi;
+	for (i = 0; i < sizeof(hqspi); i++) {
+		*ptr++ = 0U;
+	}
 
-int Init (unsigned long adr, unsigned long clk, unsigned long fnc) {
+	/* Initialize system and hal library */
+	__disable_irq();
 
-  /* Add your Code */
+	SystemInit();
+	
+	HAL_Init();
+	
+	SystemClock_Config();
+	
+	/* Initialize all configured peripherals */
+	MX_GPIO_Init();
+	MX_QUADSPI_Init();
+	
+	/* Check flash device id */
+	if (w25qxx_read_deviceid() != DEVICE_ID) {
+		return (1);
+	}
+	
+	/* Mapping the qspi flash into memory (0x90000000-0x90800000) */
+	/* Default Verify and BlankCheck function nead memory mapped mode  */
+	if (w25qxx_memory_mapped() != 0) {
+		return (1);
+	}
+	
+	LED_ON;
   return (0);                                  // Finished without Errors
 }
-
 
 /*
  *  De-Initialize Flash Programming Functions
@@ -71,9 +111,26 @@ int Init (unsigned long adr, unsigned long clk, unsigned long fnc) {
  *    Return Value:   0 - OK,  1 - Failed
  */
 
-int UnInit (unsigned long fnc) {
-
-  /* Add your Code */
+int UnInit (unsigned long fnc) 
+{
+	LED_OFF;
+	
+	/* Deinitialize all configured peripherals */
+	if (HAL_OK != HAL_QSPI_DeInit(&hqspi)) {
+		return (1);
+	}
+	HAL_GPIO_DeInit(LED_GPIO_Port, LED_Pin);
+	HAL_GPIO_DeInit(KEY1_GPIO_Port, KEY1_Pin);
+	HAL_GPIO_DeInit(KEY2_GPIO_Port, KEY2_Pin);
+	
+	/* Deinitialize system and hal library */
+	if (HAL_OK != HAL_RCC_DeInit()) {
+		return (1);
+	}
+	
+	if (HAL_OK != HAL_DeInit()) {
+		return (1);
+	}
   return (0);                                  // Finished without Errors
 }
 
@@ -83,10 +140,24 @@ int UnInit (unsigned long fnc) {
  *    Return Value:   0 - OK,  1 - Failed
  */
 
-int EraseChip (void) {
-
-  /* Add your Code */
+int EraseChip (void) 
+{
+	// LED_ON;
+	
+  if (0 != w25qxx_erase_chip()) {
+		goto errout;
+	}
+	
+	if (0 != w25qxx_memory_mapped()) {
+		goto errout;
+	}
+	
+	// LED_OFF;
   return (0);                                  // Finished without Errors
+	
+errout:
+	// LED_OFF;
+	return (1);
 }
 
 
@@ -96,10 +167,28 @@ int EraseChip (void) {
  *    Return Value:   0 - OK,  1 - Failed
  */
 
-int EraseSector (unsigned long adr) {
-
-  /* Add your Code */
-  return (0);                                  // Finished without Errors
+int EraseSector (unsigned long adr) 
+{
+	// LED_ON;
+	
+  if (adr < devAdr) {
+		goto errout;
+	}
+	
+	if (0 != w25qxx_erase_sector(adr - devAdr)) {
+		goto errout;
+	}
+	
+	if (0 != w25qxx_memory_mapped()) {
+		goto errout;
+	}
+	
+	// LED_OFF;
+	return (0);                                  // Finished without Errors
+	
+errout:
+	// LED_OFF;
+	return (1);
 }
 
 
@@ -111,8 +200,28 @@ int EraseSector (unsigned long adr) {
  *    Return Value:   0 - OK,  1 - Failed
  */
 
-int ProgramPage (unsigned long adr, unsigned long sz, unsigned char *buf) {
+int ProgramPage (unsigned long adr, unsigned long sz, unsigned char *buf) 
+{	
+	// LED_ON;
+	
+  if (adr < devAdr) {
+		goto errout;
+	}
 
-  /* Add your Code */
+	if (0 != w25qxx_page_program(buf, adr - devAdr, sz)) {
+		goto errout;
+	}
+	
+/*
+	if (0 != w25qxx_memory_mapped()) {
+		goto errout;
+	}
+*/
+	
+	// LED_OFF;
   return (0);                                  // Finished without Errors
+	
+errout:
+	// LED_OFF;
+	return (1);
 }
